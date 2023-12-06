@@ -1,0 +1,53 @@
+<!doctype html>
+<html>
+  <head>
+    <script src="./jspsych.js"></script>
+    <script src="./plugin-survey-text-audio-recording.js"></script>
+    <script src="./plugin-initialize-microphone.js"></script>
+    <link rel="stylesheet" href="./jspsych.css" />
+    <title>JSPsych Test</title>
+  </head>
+  <body>
+    <script>
+      var jsPsych = initJsPsych({
+        override_safe_mode: true,
+        on_finish: function () {
+          // add completed field to every trial in the data
+          jsPsych.data.addProperties({
+            completed: true,
+          });
+          // when data is displayed, you should see a subject and completed field for each trial
+          jsPsych.data.displayData();
+        },
+      });
+
+      let initMic = {
+        type: jsPsychInitializeMicrophone,
+      };
+
+      var testBlock = {
+        type: jsPsychSurveyTextAudioRecording,
+        questions: [
+          {
+            prompt: "What's your favourite flavor of ice cream?",
+            required: true,
+          },
+        ],
+        trial_duration: 5000,
+      };
+
+      var testBlock2 = {
+        type: jsPsychSurveyTextAudioRecording,
+        questions: [
+          {
+            prompt: "Were you dropped on the head as a child?",
+            required: true,
+          },
+        ],
+        trial_duration: 5000,
+      };
+
+      jsPsych.run([initMic, testBlock, testBlock2]);
+    </script>
+  </body>
+</html>

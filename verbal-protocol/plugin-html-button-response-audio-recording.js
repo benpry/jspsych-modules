@@ -141,6 +141,7 @@ var jsPsychHtmlButtonResponseAudioRecording = (function (jspsych) {
       this.end_trial = () => {
         // stop recording and remove event listeners
         this.stopRecording().then(() => {
+          console.log("in 'then'");
           this.recorder.removeEventListener(
             "dataavailable",
             this.data_available_handler,
@@ -175,12 +176,12 @@ var jsPsychHtmlButtonResponseAudioRecording = (function (jspsych) {
 
       // function to handle responses by the subject
       const after_response = (choice) => {
-        // measure rt
         var end_time = performance.now();
         var rt = Math.round(end_time - start_time);
         response.button = parseInt(choice);
         response.rt = rt;
 
+        // measure rt
         // after a valid response, the stimulus will have the CSS class 'responded'
         // which can be used to provide visual feedback that a response was recorded
         display_element.querySelector(
@@ -194,11 +195,9 @@ var jsPsychHtmlButtonResponseAudioRecording = (function (jspsych) {
           //btns[i].removeEventListener('click');
           btns[i].setAttribute("disabled", "disabled");
         }
-        this.stopRecording().then(() => {
-          if (trial.response_ends_trial) {
-            this.end_trial();
-          }
-        });
+        if (trial.response_ends_trial) {
+          this.end_trial();
+        }
       };
 
       // hide image if timing is set

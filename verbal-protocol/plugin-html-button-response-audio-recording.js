@@ -1,3 +1,203 @@
+// Audio analysis scripts thanks to Claude
+async function analyzeRecordedAudio(blob, fftSize = 2048, nSeconds = 10) {
+  // Previous FFT implementation remains the same...
+  const audioContext = new (window.AudioContext || window.webkitAudioContext)();
+  const arrayBuffer = await blob.arrayBuffer();
+  const audioBuffer = await audioContext.decodeAudioData(arrayBuffer);
+  const channelData = audioBuffer.getChannelData(0);
+
+  // get only the last n seconds
+  const startIdx = Math.max(
+    0,
+    channelData.length - nSeconds * audioBuffer.sampleRate,
+  );
+  const lastSecondsChannelData = channelData.slice(startIdx);
+
+  const sampleRate = audioBuffer.sampleRate;
+  const numSegments = Math.floor(lastSecondsChannelData.length / fftSize);
+  const results = [];
+
+  for (let i = 0; i < numSegments; i++) {
+    const start = i * fftSize;
+    const end = start + fftSize;
+    const segment = lastSecondsChannelData.slice(start, end);
+
+    const fft = new FFT(segment.length);
+    const spectrum = fft.forward(Array.from(segment));
+
+    const magnitudes = new Array(fft.spectrum.length);
+    for (let j = 0; j < fft.spectrum.length; j++) {
+      magnitudes[j] = Math.sqrt(
+        Math.pow(fft.spectrum[j].real, 2) + Math.pow(fft.spectrum[j].imag, 2),
+      );
+    }
+
+    results.push({
+      timeOffset: i * (fftSize / sampleRate),
+      frequencyData: magnitudes,
+      timeData: Array.from(segment),
+    });
+  }
+
+  await audioContext.close();
+
+  return {
+    results,
+    metadata: {
+      duration: audioBuffer.duration,
+      sampleRate,
+      fftSize,
+      frequencyBinCount: fftSize / 2,
+      frequencyResolution: sampleRate / fftSize,
+      totalSegments: numSegments,
+      timeStep: fftSize / sampleRate,
+    },
+  };
+}
+
+// FFT implementation
+class FFT {
+  constructor(size) {
+    this.size = size;
+    this.spectrum = new Array(size / 2)
+      .fill()
+      .map(() => ({ real: 0, imag: 0 }));
+
+    // Precompute reverse bits table
+    this.reverseBits = new Array(size);
+    for (let i = 0; i < size; i++) {
+      this.reverseBits[i] = this.reverse(i);
+    }
+  }
+
+  reverse(num) {
+    let result = 0;
+    let bits = Math.log2(this.size);
+    for (let i = 0; i < bits; i++) {
+      result = (result << 1) | (num & 1);
+      num >>= 1;
+    }
+    return result;
+  }
+
+  forward(input) {
+    const n = this.size;
+    const output = new Array(n);
+
+    // Bit reversal
+    for (let i = 0; i < n; i++) {
+      output[this.reverseBits[i]] = input[i];
+    }
+
+    // FFT computation
+    for (let size = 2; size <= n; size *= 2) {
+      const halfsize = size / 2;
+      const step = Math.PI / halfsize;
+
+      for (let i = 0; i < n; i += size) {
+        let angle = 0;
+
+        for (let j = i; j < i + halfsize; j++) {
+          const cos = Math.cos(angle);
+          const sin = Math.sin(angle);
+
+          const tReal = output[j + halfsize] * cos + output[j] * sin;
+          const tImag = output[j + halfsize] * sin - output[j] * cos;
+
+          output[j + halfsize] = output[j] - tReal;
+          output[j] = output[j] + tReal;
+
+          angle += step;
+        }
+      }
+    }
+
+    // Fill spectrum array
+    for (let i = 0; i < n / 2; i++) {
+      this.spectrum[i] = {
+        real: output[i],
+        imag: output[i + n / 2],
+      };
+    }
+
+    return this.spectrum;
+  }
+}
+
+function getFrequencyRangeActivity(analysis, minFreq, maxFreq) {
+  const { sampleRate, fftSize } = analysis.metadata;
+  const binSize = sampleRate / fftSize;
+
+  // Calculate which FFT bins correspond to our frequency range
+  const minBin = Math.floor(minFreq / binSize);
+  const maxBin = Math.ceil(maxFreq / binSize);
+
+  // Analyze each segment
+  const rangeActivity = analysis.results.map((segment) => {
+    // Sum up the magnitude of all frequencies in our range
+    let totalActivity = 0;
+    for (
+      let bin = minBin;
+      bin <= maxBin && bin < segment.frequencyData.length;
+      bin++
+    ) {
+      totalActivity += segment.frequencyData[bin];
+    }
+
+    return {
+      timeOffset: segment.timeOffset,
+      activity: totalActivity,
+      // Also include the average for this range
+      averageActivity: totalActivity / (maxBin - minBin + 1),
+    };
+  });
+
+  // Calculate some statistics for the entire range
+  const activities = rangeActivity.map((r) => r.activity);
+  const stats = {
+    minActivity: Math.min(...activities),
+    maxActivity: Math.max(...activities),
+    averageActivity: activities.reduce((a, b) => a + b, 0) / activities.length,
+    frequencyRange: {
+      min: minFreq,
+      max: maxFreq,
+      binSize,
+      minBin,
+      maxBin,
+    },
+  };
+
+  return {
+    rangeActivity,
+    stats,
+  };
+}
+
+async function processRecordingWithRanges(
+  blob,
+  frequencyRanges,
+  nSeconds = 10,
+) {
+  try {
+    const analysis = await analyzeRecordedAudio(blob, 2048, nSeconds);
+
+    // Analyze each frequency range
+    const rangeAnalysis = {};
+    for (const [rangeName, range] of Object.entries(frequencyRanges)) {
+      rangeAnalysis[rangeName] = getFrequencyRangeActivity(
+        analysis,
+        range.min,
+        range.max,
+      );
+    }
+
+    return rangeAnalysis;
+  } catch (error) {
+    console.error("Error processing audio:", error);
+    throw error;
+  }
+}
+
 var jsPsychHtmlButtonResponseAudioRecording = (function (jspsych) {
   "use strict";
 
@@ -60,6 +260,16 @@ var jsPsychHtmlButtonResponseAudioRecording = (function (jspsych) {
         pretty_name: "Response ends trial",
         default: true,
       },
+      voice_check_frequency: {
+        type: jspsych.ParameterType.INT,
+        pretty_name: "Frequency to check for voice activity",
+        default: null,
+      },
+      alert_threshold: {
+        type: jspsych.ParameterType.NUMBER,
+        pretty_name: "Minimum threshold for average voice activity",
+        default: 1,
+      },
     },
   };
   /**
@@ -112,6 +322,7 @@ var jsPsychHtmlButtonResponseAudioRecording = (function (jspsych) {
           "</div>";
       }
       html += "</div>";
+      html += "<canvas id='spectrogram' width='800' height='400'></canvas>";
       //show prompt if there is one
       if (trial.prompt !== null) {
         html += trial.prompt;
@@ -120,7 +331,7 @@ var jsPsychHtmlButtonResponseAudioRecording = (function (jspsych) {
       // start time
       this.recorder = this.jsPsych.pluginAPI.getMicrophoneRecorder();
       this.setupRecordingEvents(display_element, trial);
-      this.startRecording();
+      this.startRecording(trial.voice_check_frequency);
       var start_time = performance.now();
       // add event listeners to buttons
       for (var i = 0; i < trial.choices.length; i++) {
@@ -141,7 +352,6 @@ var jsPsychHtmlButtonResponseAudioRecording = (function (jspsych) {
       this.end_trial = () => {
         // stop recording and remove event listeners
         this.stopRecording().then(() => {
-          console.log("in 'then'");
           this.recorder.removeEventListener(
             "dataavailable",
             this.data_available_handler,
@@ -263,9 +473,39 @@ var jsPsychHtmlButtonResponseAudioRecording = (function (jspsych) {
 
     // functions for recording audio
     setupRecordingEvents(display_element, trial) {
+      this.check_inactive = async (data) => {
+        const ranges = {
+          speech: { min: 85, max: 255 },
+        };
+        const rangeAnalysis = await processRecordingWithRanges(
+          data,
+          ranges,
+          trial.voice_check_frequency,
+        );
+        const voiceActivity = rangeAnalysis.speech.rangeActivity;
+        const totalAverageActivity =
+          voiceActivity.reduce((acc, val) => acc + val.averageActivity, 0) /
+          voiceActivity.length;
+
+        console.log("total average activity: ", totalAverageActivity);
+
+        if (totalAverageActivity < trial.alert_threshold) {
+          alert("Remember to say your thoughts aloud!");
+        }
+      };
+
       this.data_available_handler = (e) => {
         if (e.data.size > 0) {
           this.recorded_data_chunks.push(e.data);
+          if (
+            trial.voice_check_frequency !== null &&
+            this.recorder.state === "recording"
+          ) {
+            const data = new Blob(this.recorded_data_chunks, {
+              type: "audio/webm",
+            });
+            this.check_inactive(data);
+          }
         }
       };
 
@@ -319,8 +559,12 @@ var jsPsychHtmlButtonResponseAudioRecording = (function (jspsych) {
       this.recorder.addEventListener("start", this.start_event_handler);
     }
 
-    startRecording() {
-      this.recorder.start();
+    startRecording(freq_s) {
+      if (freq_s === null) {
+        this.recorder.start();
+      } else {
+        this.recorder.start(freq_s * 1000);
+      }
     }
 
     stopRecording() {

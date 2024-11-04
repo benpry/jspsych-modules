@@ -1,47 +1,44 @@
-<!DOCTYPE html>
+<!doctype html>
 <html>
-<head>
-
+  <head>
     <script src="./jspsych.js"></script>
-    <script src=
-    "./plugin-html-button-response-audio-recording.js"></script>
-    <script src="./plugin-initialize-microphone.js"></script>
-    <link rel="stylesheet" href="./jspsych.css">
+    <script src="./base-plugins/plugin-initialize-microphone.js"></script>
+    <script src="./verbal-protocol/plugin-html-button-response-audio-recording.js"></script>
+    <link rel="stylesheet" href="./jspsych.css" />
     <title>JSPsych Test</title>
-</head>
-<body>
+  </head>
+  <body>
     <script>
-
-    var jsPsych = initJsPsych({
-         override_safe_mode: true,
-        on_finish: function() {
-            // add completed field to every trial in the data
-            jsPsych.data.addProperties({
-            completed: true
-            });
-            // when data is displayed, you should see a subject and completed field for each trial
-            jsPsych.data.displayData();
+      var jsPsych = initJsPsych({
+        override_safe_mode: true,
+        on_finish: function () {
+          // add completed field to every trial in the data
+          jsPsych.data.addProperties({
+            completed: true,
+          });
+          // when data is displayed, you should see a subject and completed field for each trial
+          jsPsych.data.displayData();
         },
-    });
+      });
 
-    let initMic = {
+      let initMic = {
         type: jsPsychInitializeMicrophone,
-    }
+      };
 
-    var testBlock = {
-      type: jsPsychHtmlButtonResponseAudioRecording,
-      stimulus: "Hi, you're being recorded",
-      trial_duration: 100000,
-      choices: ['Great', "Ok"],
-    };
+      var testBlock = {
+        type: jsPsychHtmlButtonResponseAudioRecording,
+        stimulus: "Hi, you're being recorded",
+        trial_duration: 100000,
+        choices: ["Great", "Ok"],
+        voice_check_frequency: 30,
+      };
 
-    // add the subject number to every trial in the data
-    jsPsych.data.addProperties({
-      subject: 1
-    });
+      // add the subject number to every trial in the data
+      jsPsych.data.addProperties({
+        subject: 1,
+      });
 
-    jsPsych.run([initMic, testBlock]);
-
+      jsPsych.run([initMic, testBlock]);
     </script>
-</body>
+  </body>
 </html>
